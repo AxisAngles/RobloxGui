@@ -1,32 +1,35 @@
-local ScaleTracker = {}
-ScaleTracker.__index = ScaleTracker
-ScaleTracker._cache = {}
+local GuiScale = {}
+GuiScale.__index = GuiScale
+GuiScale._cache = {}
 
-function ScaleTracker.getTracker(gui)
-	return ScaleTracker._cache[gui] or ScaleTracker._new(gui)
+function GuiScale.getTracker(gui)
+	return GuiScale._cache[gui] or GuiScale._new(gui)
 end
 
-function ScaleTracker.getScale(gui)
-	return ScaleTracker.getTracker(gui).scale
+function GuiScale.getScale(gui)
+	return GuiScale.getTracker(gui).scale
 end
 
-function ScaleTracker._new(gui)
+function GuiScale._new(gui)
 	if not gui or not gui:IsA("GuiBase2d") then return nil end
+	local self = setmetatable({}, GuiScale)
 
-	local self = setmetatable({
-		_gui = gui;
-		_listeners = {};
-		_runId = 0;
-		_index = 0;
-		_count = 0;
-		_parentTracker = nil;
-		_uiScaleValue = 1;
-		_uiScaleConn = nil;
-		_uiScale = nil;
-		scale = 1;
-	}, ScaleTracker)
+	self._gui = gui;
+	self._listeners = {};
 
-	ScaleTracker._cache[gui] = self
+	self._runId = 0;
+	self._index = 0;
+	self._count = 0;
+
+	self._parentTracker = nil;
+
+	self._uiScale = nil;
+	self._uiScaleConn = nil;
+	self._uiScaleValue = 1;
+
+	self.scale = 1;
+
+	GuiScale._cache[gui] = self
 
 	-- Setup connections
 	self._childAddedConn = gui.ChildAdded:Connect(function(child)
@@ -55,7 +58,7 @@ function ScaleTracker._new(gui)
 	return self
 end
 
-function ScaleTracker:_setupUIScale()
+function GuiScale:_setupUIScale()
 	-- Disconnect previous connection if exists
 	if self._uiScaleConn then
 		self._uiScaleConn:Disconnect()
@@ -80,22 +83,22 @@ function ScaleTracker:_setupUIScale()
 	self:_updateScale()
 end
 
-function ScaleTracker:_setupParent()
+function GuiScale:_setupParent()
 	-- Remove from previous parent
 	if self._parentTracker then
-		self._parentTracker:removeListener(self)
+		self._parentTracker:disconnect(self)
 	end
 
 	-- Connect to new parent
-	self._parentTracker = ScaleTracker.getTracker(self._gui.Parent)
+	self._parentTracker = GuiScale.getTracker(self._gui.Parent)
 	if self._parentTracker then
-		self._parentTracker:addListener(self)
+		self._parentTracker:connect(self, true)
 	end
 
 	self:_updateScale()
 end
 
-function ScaleTracker:_updateScale()
+function GuiScale:_updateScale()
 	local newScale = 1
 
 	-- Apply parent scale
@@ -115,7 +118,7 @@ function ScaleTracker:_updateScale()
 	self:_notify()
 end
 
-function ScaleTracker:_notify()
+function GuiScale:_notify()
 	-- Create new run ID to handle nested calls
 	self._runId += 1
 	local currentRun = self._runId
@@ -139,20 +142,36 @@ function ScaleTracker:_notify()
 	end
 end
 
-function ScaleTracker:addListener(listener)
-	table.insert(self._listeners, listener)
-	return self
+local GuiScaleConnection = {}
+GuiScaleConnection.__index = GuiScaleConnection
+
+function GuiScaleConnection.new(tracker, listener)
+	return setmetatable({
+		tracker  = tracker;
+		listener = listener;
+	}, GuiScaleConnection)
+
 end
 
-function ScaleTracker:removeListener(listener)
-	local idx = table.find(self._listeners, listener)
-	if not idx then return end
+function GuiScaleConnection:disconnect()
+	self.tracker:disconnect(self.listener)
+end
 
-	table.remove(self._listeners, idx)
+function GuiScale:connect(listener, _noConnection)
+	table.insert(self._listeners, listener)
+	if _noConnection then return end
+	return GuiScaleConnection.new(self, listener)
+end
+
+function GuiScale:disconnect(listener)
+	local foundIndex = table.find(self._listeners, listener)
+	if not foundIndex then return end
+
+	table.remove(self._listeners, foundIndex)
 
 	-- Update iteration indices if we're in the middle of notifying
-	if idx <= self._index then self._index -= 1 end
-	if idx <= self._count then self._count -= 1 end
+	if foundIndex <= self._index then self._index -= 1 end
+	if foundIndex <= self._count then self._count -= 1 end
 
 	-- Clean up if no more listeners
 	if #self._listeners == 0 then
@@ -160,9 +179,9 @@ function ScaleTracker:removeListener(listener)
 	end
 end
 
-function ScaleTracker:destroy()
+function GuiScale:destroy()
 	-- Remove from cache
-	ScaleTracker._cache[self._gui] = nil
+	GuiScale._cache[self._gui] = nil
 
 	-- Disconnect all connections
 	self._childAddedConn:Disconnect()
@@ -175,19 +194,8 @@ function ScaleTracker:destroy()
 	end
 
 	if self._parentTracker then
-		self._parentTracker:removeListener(self)
+		self._parentTracker:disconnect(self)
 	end
 end
 
---return ScaleTracker
-
--- Usage:
---local scaleTracker = ScaleTracker.getTracker(script.Parent)
---local listener = scaleTracker:addListener(function(scale)
---	print("New scale:", scale)
---end)
-
--- and later:
---scaleTracker:removeListener(listener)
-
-return ScaleTracker
+return GuiScale

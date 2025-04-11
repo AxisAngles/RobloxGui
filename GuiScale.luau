@@ -1,3 +1,15 @@
+--[[
+	Usage:
+
+	local con = GuiScale.getTracker(gui):connect(function(scale)
+		print("gui scale is now", scale)
+	end)
+
+	con:disconnect()
+
+	local currentScale = GuiScale.getScale(gui)
+]]
+
 local GuiScale = {}
 GuiScale.__index = GuiScale
 GuiScale._cache = {}

@@ -36,6 +36,10 @@ function ChangedEventConnection:disconnect()
 	self.event:disconnect(self.listener)
 end
 
+function ChangedEventConnection:connect()
+	self.event:connect(self.listener)
+end
+
 function Event:connect(listener, _noConnection)
 	table.insert(self._listeners, listener)
 	if _noConnection then return end
@@ -51,27 +55,31 @@ function Event:disconnect(listener)
 	-- Update iteration indices if we're in the middle of firing
 	if foundIndex <= self._index then self._index -= 1 end
 	if foundIndex <= self._count then self._count -= 1 end
+
+	for _, args in self._pendingArgs do
+		if foundIndex <= args.count then args.count -= 1 end
+	end
 end
 
 function Event:fire(...)
-	-- we we are in the middle of firing, 
-	if self._deferred and self._index < self._count then
-		local args = {n = select("#", ...); ...}
+	-- if we're deferred, place args in pending, and don't let it skip the line!
+	if self._deferred and (self._index < self._count or self._pendingArgs[1]) then
+		local args = {count = #self._listeners; n = select("#", ...); ...}
 		table.insert(self._pendingArgs, args)
 		return
 	end
 
-	self:_fireLoop(...)
+	self:_fireLoop(#self._listeners, ...)
 
 	while self._pendingArgs[1] do
 		local args = table.remove(self._pendingArgs, 1)
-		self:_fireLoop(table.unpack(args, 1, args.n))
+		self:_fireLoop(args.count, table.unpack(args, 1, args.n))
 	end
 end
 
-function Event:_fireLoop(...)
+function Event:_fireLoop(count, ...)
 	self._index = 0
-	self._count = #self._listeners
+	self._count = count
 
 	while self._index < self._count do
 		self._index += 1
@@ -79,6 +87,5 @@ function Event:_fireLoop(...)
 		listener(...)
 	end
 end
-
 
 return Event
